@@ -1,0 +1,58 @@
+[
+  {
+    "user_id": "stu_0001",
+    "no_soal": 1,
+    "materi": "penjumlahan",
+    "benar_salah": 1,
+    "waktu_pengerjaan": 12.5
+  },
+  {
+    "user_id": "stu_0001",
+    "no_soal": 2,
+    "materi": "pengurangan",
+    "benar_salah": 0,
+    "waktu_pengerjaan": 34.2
+  },
+  {
+    "user_id": "stu_0001",
+    "no_soal": 3,
+    "materi": "perkalian",
+    "benar_salah": 1,
+    "waktu_pengerjaan": 18.7
+  },
+  {
+    "user_id": "stu_0001",
+    "no_soal": 4,
+    "materi": "penjumlahan",
+    "benar_salah": 0,
+    "waktu_pengerjaan": 45.1
+  },
+  {
+    "user_id": "stu_0001",
+    "no_soal": 5,
+    "materi": "pecahan",
+    "benar_salah": 0,
+    "waktu_pengerjaan": 52.3
+  },
+  {
+    "user_id": "stu_0002",
+    "no_soal": 1,
+    "materi": "penjumlahan",
+    "benar_salah": 1,
+    "waktu_pengerjaan": 8.2
+  },
+  {
+    "user_id": "stu_0002",
+    "no_soal": 2,
+    "materi": "pengurangan",
+    "benar_salah": 1,
+    "waktu_pengerjaan": 9.5
+  },
+  {
+    "user_id": "stu_0002",
+    "no_soal": 3,
+    "materi": "perkalian",
+    "benar_salah": 1,
+    "waktu_pengerjaan": 11.3
+  }
+]

@@ -1,0 +1,3 @@
+﻿user_id,penjumlahan_acc,penjumlahan_time,pengurangan_acc,pengurangan_time,perkalian_acc,perkalian_time,pembagian_acc,pembagian_time,label_penjumlahan,label_pengurangan,label_perkalian,label_pembagian
+1,0.9,5,0.8,6,0.4,12,0.5,10,1,1,0,0
+2,0.6,7,0.5,8,0.9,5,0.85,6,0,0,1,1
