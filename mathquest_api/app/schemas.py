@@ -97,6 +97,15 @@ class PredictSingleRequest(BaseModel):
         description="Daftar jawaban pre-test — semua harus user_id yang sama",
     )
 
+class PembahasanRequest(BaseModel):
+    user_id       : str  = Field(..., description="ID unik siswa")
+    soal          : str  = Field(..., description="Teks soal")
+    pilihan       : dict = Field(..., description="Pilihan jawaban: {'A':'teks', ...}")
+    jawaban_siswa : str  = Field(..., description="Kunci jawaban yang dipilih siswa")
+    jawaban_benar : str  = Field(..., description="Kunci jawaban yang benar")
+    materi        : str  = Field(..., description="Nama materi soal")
+    jenjang       : str  = Field("SMA", description="SD, SMP, atau SMA")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RESPONSE SCHEMAS
@@ -163,3 +172,11 @@ class ModelInfoResponse(BaseModel):
     nama_fitur: list[str]
     konfigurasi: ModelKonfigurasi
     performa: ModelPerformance
+
+class PembahasanResponse(BaseModel):
+    user_id       : str  = Field(..., description="ID siswa")
+    pembahasan    : str  = Field(..., description="Penjelasan langkah demi langkah")
+    materi        : str  = Field(..., description="Materi soal")
+    is_benar      : bool = Field(..., description="True jika jawaban siswa benar")
+    model_dipakai : str  = Field(..., description="Model AI yang dipakai")
+    sukses        : bool = Field(..., description="True jika berhasil generate")

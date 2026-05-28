@@ -37,8 +37,8 @@
     "avg_waktu_trigonometri"
   ],
   "performa": {
-    "test_accuracy": 0.9333,
-    "test_mae": 0.0667,
+    "test_accuracy": 0.9278,
+    "test_mae": 0.0722,
     "target_accuracy_tercapai": true,
     "target_mae_tercapai": false
   },

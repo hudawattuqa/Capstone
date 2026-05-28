@@ -16,10 +16,15 @@ from contextlib import asynccontextmanager
 from typing import Optional
 import logging
 import time
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+from groq import Groq, RateLimitError as GroqRateLimitError
 
 from app.schemas import (
     PretestRecord,
@@ -28,6 +33,8 @@ from app.schemas import (
     PredictResponse,
     HealthResponse,
     ModelInfoResponse,
+    PembahasanRequest,
+    PembahasanResponse,
 )
 from app.model import PlacementModel
 from app.config import settings
@@ -41,6 +48,14 @@ logger = logging.getLogger("mathquest.api")
 
 # ─── Global model instance ────────────────────────────────────────────────────
 placement_model: Optional[PlacementModel] = None
+
+# ─── Konfigurasi Generative AI (Pembahasan) ───────────────────────────────────
+# Satu API key Groq, dua model — fallback otomatis kalau model utama rate limit
+GROQ_API_KEY         = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL           = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL_FALLBACK  = os.getenv("GROQ_MODEL_FALLBACK", "llama3-8b-8192")
+
+_groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
 # ─── Lifespan (load model saat startup) ──────────────────────────────────────
@@ -109,6 +124,42 @@ def _require_model():
             status_code=503,
             detail="Model belum dimuat. Periksa path file di konfigurasi.",
         )
+
+
+def _generate_with_fallback(system_prompt: str, user_prompt: str) -> tuple[str, str]:
+    """
+    Coba generate dengan model Groq utama dulu.
+    Kalau kena rate limit, otomatis fallback ke model Groq kedua.
+
+    Returns:
+        tuple: (teks_pembahasan, nama_model_yang_dipakai)
+    """
+    if _groq_client is None:
+        raise Exception("GROQ_API_KEY belum diset di .env")
+
+    models = [GROQ_MODEL, GROQ_MODEL_FALLBACK]
+
+    for model in models:
+        try:
+            logger.info("Mencoba generate dengan Groq (%s)...", model)
+            response = _groq_client.chat.completions.create(
+                model       = model,
+                messages    = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                temperature = 0.3,
+                max_tokens  = 500,
+            )
+            teks = response.choices[0].message.content
+            logger.info("Generate berhasil via Groq (%s).", model)
+            return teks, f"groq/{model}"
+        except GroqRateLimitError:
+            logger.warning("Groq rate limit pada %s — mencoba model berikutnya.", model)
+        except Exception as exc:
+            logger.warning("Groq error pada %s: %s — mencoba model berikutnya.", model, exc)
+
+    raise Exception("Semua model Groq gagal. Coba lagi nanti.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -230,6 +281,114 @@ async def predict_single(body: PredictSingleRequest):
     except Exception as exc:
         logger.error("Prediction error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat prediksi.")
+
+
+@app.post(
+    "/generate/pembahasan",
+    response_model=PembahasanResponse,
+    summary="Generate pembahasan soal (benar maupun salah)",
+    tags=["Generative AI"],
+)
+async def generate_pembahasan(request: PembahasanRequest):
+    """
+    Generate pembahasan soal otomatis menggunakan AI.
+    Dipanggil setiap kali siswa selesai menjawab satu soal,
+    baik jawaban benar maupun salah.
+
+    - `is_benar = true`  → pembahasan berisi apresiasi + penjelasan langkah
+    - `is_benar = false` → pembahasan berisi koreksi + langkah yang benar + tips
+
+    **Format input:**
+    ```json
+    {
+      "user_id": "stu_001",
+      "soal": "Jika 3x + 5 = 20, berapakah nilai x?",
+      "pilihan": {"A": "3", "B": "4", "C": "5", "D": "6"},
+      "jawaban_siswa": "C",
+      "jawaban_benar": "C",
+      "materi": "aljabar",
+      "jenjang": "SMA"
+    }
+    ```
+
+    **Format output:**
+    ```json
+    {
+      "user_id": "stu_001",
+      "pembahasan": "Hebat, jawabanmu benar! ...",
+      "materi": "aljabar",
+      "is_benar": true,
+      "model_dipakai": "groq/llama-3.3-70b-versatile",
+      "sukses": true
+    }
+    ```
+    """
+    if request.jawaban_benar not in request.pilihan:
+        raise HTTPException(
+            status_code=422,
+            detail="jawaban_benar tidak ditemukan di dalam pilihan.",
+        )
+
+    is_benar = request.jawaban_siswa == request.jawaban_benar
+
+    try:
+        # Susun teks pilihan
+        teks_pilihan = ""
+        for kunci, nilai in request.pilihan.items():
+            if kunci == request.jawaban_benar:
+                teks_pilihan += f"{kunci}. {nilai} (JAWABAN BENAR)\n"
+            else:
+                teks_pilihan += f"{kunci}. {nilai}\n"
+
+        system_prompt = (
+            f"Kamu adalah tutor matematika yang sabar dan ramah untuk siswa "
+            f"{request.jenjang} di Indonesia. Berikan pembahasan soal yang edukatif "
+            f"menggunakan bahasa yang mudah dipahami. "
+            f"Gunakan Bahasa Indonesia yang santai namun jelas."
+        )
+
+        if is_benar:
+            user_prompt = (
+                f'Siswa {request.jenjang} menjawab soal materi "{request.materi}" dengan BENAR.\n\n'
+                f"SOAL:\n{request.soal}\n\n"
+                f"PILIHAN JAWABAN:\n{teks_pilihan}\n"
+                f"Siswa memilih {request.jawaban_siswa} — BENAR!\n\n"
+                f"Buat pembahasan yang:\n"
+                f"1. Berikan APRESIASI singkat karena menjawab benar\n"
+                f"2. Tunjukkan LANGKAH-LANGKAH penyelesaian yang benar\n"
+                f"3. Berikan INSIGHT tambahan atau variasi soal serupa\n\n"
+                f"Maksimal 200 kata. Bahasa ramah untuk siswa {request.jenjang}."
+            )
+        else:
+            user_prompt = (
+                f'Siswa {request.jenjang} menjawab soal materi "{request.materi}" dengan SALAH.\n\n'
+                f"SOAL:\n{request.soal}\n\n"
+                f"PILIHAN JAWABAN:\n{teks_pilihan}\n"
+                f"Siswa memilih {request.jawaban_siswa}, jawaban benar adalah {request.jawaban_benar}.\n\n"
+                f"Buat pembahasan yang:\n"
+                f"1. Jelaskan MENGAPA jawaban {request.jawaban_siswa} kurang tepat (1-2 kalimat)\n"
+                f"2. Tunjukkan LANGKAH-LANGKAH cara menjawab dengan benar\n"
+                f"3. Berikan TIPS singkat agar tidak salah lagi\n\n"
+                f"Maksimal 200 kata. Bahasa ramah untuk siswa {request.jenjang}."
+            )
+
+        # ── Generate pembahasan (Groq utama, Gemini fallback) ──────────────────
+        pembahasan, model_dipakai = _generate_with_fallback(system_prompt, user_prompt)
+
+        return PembahasanResponse(
+            user_id       = request.user_id,
+            pembahasan    = pembahasan,
+            materi        = request.materi,
+            is_benar      = is_benar,
+            model_dipakai = model_dipakai,
+            sukses        = True,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Pembahasan error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generate pembahasan: {str(exc)}")
 
 
 # ─── Root ──────────────────────────────────────────────────────────────────────
