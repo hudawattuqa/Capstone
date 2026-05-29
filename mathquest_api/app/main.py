@@ -332,13 +332,20 @@ async def generate_pembahasan(request: PembahasanRequest):
     is_benar = request.jawaban_siswa == request.jawaban_benar
 
     try:
-        # Susun teks pilihan
+        # Ambil teks jawaban siswa dan jawaban benar langsung dari dict pilihan
+        # Pakai TEKS jawaban (bukan huruf A/B/C/D) agar AI tidak sebut huruf
+        # yang urutannya bisa berbeda-beda tiap user
+        teks_jawaban_siswa = request.pilihan.get(request.jawaban_siswa, request.jawaban_siswa)
+        teks_jawaban_benar = request.pilihan.get(request.jawaban_benar, request.jawaban_benar)
+
+        # Susun teks pilihan — tampilkan semua opsi tanpa label huruf
+        # Tandai jawaban benar dengan "(JAWABAN BENAR)" agar AI tahu mana yang benar
         teks_pilihan = ""
         for kunci, nilai in request.pilihan.items():
             if kunci == request.jawaban_benar:
-                teks_pilihan += f"{kunci}. {nilai} (JAWABAN BENAR)\n"
+                teks_pilihan += f"- {nilai} (JAWABAN BENAR)\n"
             else:
-                teks_pilihan += f"{kunci}. {nilai}\n"
+                teks_pilihan += f"- {nilai}\n"
 
         system_prompt = (
             f"Kamu adalah tutor matematika yang sabar dan ramah untuk siswa "
@@ -352,11 +359,13 @@ async def generate_pembahasan(request: PembahasanRequest):
                 f'Siswa {request.jenjang} menjawab soal materi "{request.materi}" dengan BENAR.\n\n'
                 f"SOAL:\n{request.soal}\n\n"
                 f"PILIHAN JAWABAN:\n{teks_pilihan}\n"
-                f"Siswa memilih {request.jawaban_siswa} — BENAR!\n\n"
+                f'Siswa menjawab "{teks_jawaban_benar}" — BENAR!\n\n'
                 f"Buat pembahasan yang:\n"
                 f"1. Berikan APRESIASI singkat karena menjawab benar\n"
                 f"2. Tunjukkan LANGKAH-LANGKAH penyelesaian yang benar\n"
                 f"3. Berikan INSIGHT tambahan atau variasi soal serupa\n\n"
+                f"PENTING: Jangan sebut huruf pilihan (A/B/C/D). "
+                f"Gunakan teks jawaban secara langsung.\n"
                 f"Maksimal 200 kata. Bahasa ramah untuk siswa {request.jenjang}."
             )
         else:
@@ -364,11 +373,14 @@ async def generate_pembahasan(request: PembahasanRequest):
                 f'Siswa {request.jenjang} menjawab soal materi "{request.materi}" dengan SALAH.\n\n'
                 f"SOAL:\n{request.soal}\n\n"
                 f"PILIHAN JAWABAN:\n{teks_pilihan}\n"
-                f"Siswa memilih {request.jawaban_siswa}, jawaban benar adalah {request.jawaban_benar}.\n\n"
+                f'Siswa menjawab "{teks_jawaban_siswa}", '
+                f'jawaban benar adalah "{teks_jawaban_benar}".\n\n'
                 f"Buat pembahasan yang:\n"
-                f"1. Jelaskan MENGAPA jawaban {request.jawaban_siswa} kurang tepat (1-2 kalimat)\n"
+                f'1. Jelaskan MENGAPA jawaban "{teks_jawaban_siswa}" kurang tepat (1-2 kalimat)\n'
                 f"2. Tunjukkan LANGKAH-LANGKAH cara menjawab dengan benar\n"
                 f"3. Berikan TIPS singkat agar tidak salah lagi\n\n"
+                f"PENTING: Jangan sebut huruf pilihan (A/B/C/D). "
+                f"Gunakan teks jawaban secara langsung.\n"
                 f"Maksimal 200 kata. Bahasa ramah untuk siswa {request.jenjang}."
             )
 
