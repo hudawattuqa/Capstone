@@ -1,17 +1,3 @@
-"""
-MathQuest — Placement Model REST API
-=====================================
-FastAPI server untuk model prediksi topik lemah siswa
-berdasarkan hasil pre-test.
-
-Endpoint:
-  POST /predict        → prediksi untuk satu / banyak siswa
-  POST /predict/single → prediksi untuk satu siswa saja
-  GET  /health         → cek status server + model
-  GET  /model/info     → metadata model (versi, fitur, performa)
-  GET  /docs           → Swagger UI (otomatis dari FastAPI)
-"""
-
 from contextlib import asynccontextmanager
 from typing import Optional
 import logging
@@ -39,29 +25,22 @@ from app.schemas import (
 from app.model import PlacementModel
 from app.config import settings
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("mathquest.api")
 
-# ─── Global model instance ────────────────────────────────────────────────────
 placement_model: Optional[PlacementModel] = None
 
-# ─── Konfigurasi Generative AI (Pembahasan) ───────────────────────────────────
-# Satu API key Groq, dua model — fallback otomatis kalau model utama rate limit
 GROQ_API_KEY         = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL           = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_MODEL_FALLBACK  = os.getenv("GROQ_MODEL_FALLBACK", "llama3-8b-8192")
 
 _groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-
-# ─── Lifespan (load model saat startup) ──────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load model saat server start, bersihkan saat shutdown."""
     global placement_model
     logger.info("Memuat model dari: %s", settings.MODEL_PATH)
     try:
@@ -72,16 +51,14 @@ async def lifespan(app: FastAPI):
             metadata_path=settings.MODEL_META_PATH,
         )
         placement_model.load()
-        logger.info("Model berhasil dimuat ✓")
+        logger.info("Model berhasil dimuat")
     except Exception as exc:
         logger.error("Gagal memuat model: %s", exc)
-        # Server tetap jalan, tapi /predict akan return 503
         placement_model = None
     yield
     logger.info("Server shutdown — membersihkan resource...")
 
 
-# ─── FastAPI App ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title="MathQuest Placement API",
     description=(
@@ -94,7 +71,6 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ─── CORS (sesuaikan origin backend kamu) ─────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -104,20 +80,18 @@ app.add_middleware(
 )
 
 
-# ─── Middleware: request logging + timing ─────────────────────────────────────
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     elapsed = round((time.time() - start) * 1000, 2)
     logger.info(
-        "%s %s → %d  (%.1f ms)",
+        "%s %s -> %d  (%.1f ms)",
         request.method, request.url.path, response.status_code, elapsed,
     )
     return response
 
 
-# ─── Helper ───────────────────────────────────────────────────────────────────
 def _require_model():
     if placement_model is None or not placement_model.is_loaded:
         raise HTTPException(
@@ -176,8 +150,8 @@ async def health_check():
     """
     Kembalikan status server.
 
-    - `status: ok`   → server + model siap
-    - `status: degraded` → server jalan, model gagal dimuat
+    - `status: ok`   -> server + model siap
+    - `status: degraded` -> server jalan, model gagal dimuat
     """
     if placement_model and placement_model.is_loaded:
         return HealthResponse(
@@ -195,7 +169,6 @@ async def health_check():
     tags=["Monitoring"],
 )
 async def model_info():
-    """Kembalikan metadata lengkap model yang sedang berjalan."""
     _require_model()
     return placement_model.get_info()
 
@@ -251,12 +224,6 @@ async def predict_batch(body: PredictRequest):
     tags=["Prediksi"],
 )
 async def predict_single(body: PredictSingleRequest):
-    """
-    Shortcut untuk prediksi satu siswa saja.
-    Semua record HARUS memiliki `user_id` yang sama.
-
-    Kembalikan satu objek hasil (bukan list).
-    """
     _require_model()
     if not body.records:
         raise HTTPException(status_code=422, detail="Field 'records' tidak boleh kosong.")
@@ -295,8 +262,8 @@ async def generate_pembahasan(request: PembahasanRequest):
     Dipanggil setiap kali siswa selesai menjawab satu soal,
     baik jawaban benar maupun salah.
 
-    - `is_benar = true`  → pembahasan berisi apresiasi + penjelasan langkah
-    - `is_benar = false` → pembahasan berisi koreksi + langkah yang benar + tips
+    - `is_benar = true`  -> pembahasan berisi apresiasi + penjelasan langkah
+    - `is_benar = false` -> pembahasan berisi koreksi + langkah yang benar + tips
 
     **Format input:**
     ```json
@@ -332,14 +299,9 @@ async def generate_pembahasan(request: PembahasanRequest):
     is_benar = request.jawaban_siswa == request.jawaban_benar
 
     try:
-        # Ambil teks jawaban siswa dan jawaban benar langsung dari dict pilihan
-        # Pakai TEKS jawaban (bukan huruf A/B/C/D) agar AI tidak sebut huruf
-        # yang urutannya bisa berbeda-beda tiap user
         teks_jawaban_siswa = request.pilihan.get(request.jawaban_siswa, request.jawaban_siswa)
         teks_jawaban_benar = request.pilihan.get(request.jawaban_benar, request.jawaban_benar)
 
-        # Susun teks pilihan — tampilkan semua opsi tanpa label huruf
-        # Tandai jawaban benar dengan "(JAWABAN BENAR)" agar AI tahu mana yang benar
         teks_pilihan = ""
         for kunci, nilai in request.pilihan.items():
             if kunci == request.jawaban_benar:
@@ -384,7 +346,6 @@ async def generate_pembahasan(request: PembahasanRequest):
                 f"Maksimal 200 kata. Bahasa ramah untuk siswa {request.jenjang}."
             )
 
-        # ── Generate pembahasan (Groq utama, Gemini fallback) ──────────────────
         pembahasan, model_dipakai = _generate_with_fallback(system_prompt, user_prompt)
 
         return PembahasanResponse(
@@ -403,7 +364,6 @@ async def generate_pembahasan(request: PembahasanRequest):
         raise HTTPException(status_code=500, detail=f"Error generate pembahasan: {str(exc)}")
 
 
-# ─── Root ──────────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
 async def root():
     return {

@@ -1,8 +1,3 @@
-"""
-Kelas PlacementModel — wrapper untuk load dan inference model TF/Keras.
-Memisahkan logika ML dari layer HTTP (FastAPI).
-"""
-
 import json
 import logging
 from pathlib import Path
@@ -14,23 +9,12 @@ import pandas as pd
 
 logger = logging.getLogger("mathquest.model")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Custom Keras Objects
-# (HARUS sama persis dengan definisi saat training)
-# ══════════════════════════════════════════════════════════════════════════════
-
 def _build_custom_objects():
-    """
-    Lazy-import TensorFlow dan definisikan custom layers/losses.
-    Dijalankan sekali saat PlacementModel.load() dipanggil.
-    Kompatibel dengan TF 2.x (lama) maupun TF 2.16+ (keras standalone).
-    """
     import tensorflow as tf
     try:
-        import keras  # TF 2.16+ — keras sebagai package terpisah
+        import keras 
     except ImportError:
-        from tensorflow import keras  # TF < 2.16
+        from tensorflow import keras 
 
     class TopicAttentionLayer(keras.layers.Layer):
         def __init__(self, units, **kwargs):
@@ -77,21 +61,7 @@ def _build_custom_objects():
         "WeightedCrossEntropyLoss": WeightedCrossEntropyLoss,
     }
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PlacementModel
-# ══════════════════════════════════════════════════════════════════════════════
-
 class PlacementModel:
-    """
-    Wrapper untuk model placement MathQuest.
-
-    Responsibilities:
-    - Load model .keras, scaler .pkl, feature names .txt, metadata .json
-    - Preprocessing: raw records → feature matrix
-    - Inference: feature matrix → weak_topics + confidence
-    """
-
     def __init__(
         self,
         model_path: str,
@@ -111,17 +81,14 @@ class PlacementModel:
         self.is_loaded  = False
         self.version: Optional[str] = None
 
-    # ── Load ──────────────────────────────────────────────────────────────────
-
     def load(self):
-        """Load semua artefak model dari disk."""
         self._validate_paths()
 
         logger.info("Loading TensorFlow model dari %s ...", self.model_path)
         try:
-            import keras  # TF 2.16+
+            import keras 
         except ImportError:
-            from tensorflow import keras  # TF < 2.16
+            from tensorflow import keras 
         custom_objects = _build_custom_objects()
         self._model = keras.models.load_model(
             str(self.model_path),
@@ -162,8 +129,6 @@ class PlacementModel:
                 f"File model tidak ditemukan:\n" + "\n".join(f"  - {m}" for m in missing)
             )
 
-    # ── Preprocessing ─────────────────────────────────────────────────────────
-
     def _preprocess(self, records: list[dict]) -> tuple[np.ndarray, list[str], pd.DataFrame]:
         """
         Ubah raw records menjadi feature matrix yang siap di-predict.
@@ -175,13 +140,11 @@ class PlacementModel:
         """
         df = pd.DataFrame(records)
 
-        # Validasi kolom
         required = {"user_id", "materi", "benar_salah", "waktu_pengerjaan"}
         missing = required - set(df.columns)
         if missing:
             raise ValueError(f"Kolom wajib tidak ada: {missing}")
 
-        # Cleaning
         df = df.dropna(subset=["benar_salah", "waktu_pengerjaan", "materi"])
         df = df[df["waktu_pengerjaan"].between(1, 300)]
         df = df[df["benar_salah"].isin([0, 1])]
@@ -190,7 +153,6 @@ class PlacementModel:
         if df.empty:
             raise ValueError("Semua record tidak valid setelah cleaning.")
 
-        # Akurasi per materi per siswa
         akurasi_per_materi = (
             df.groupby(["user_id", "materi"])["benar_salah"]
             .mean()
@@ -201,7 +163,6 @@ class PlacementModel:
             f"akurasi_{m}" for m in akurasi_per_materi.columns
         ]
 
-        # Rata-rata waktu per materi per siswa
         avg_waktu = (
             df.groupby(["user_id", "materi"])["waktu_pengerjaan"]
             .mean()
@@ -209,10 +170,8 @@ class PlacementModel:
         )
         avg_waktu.columns = [f"avg_waktu_{m}" for m in avg_waktu.columns]
 
-        # Gabung
         df_siswa = akurasi_per_materi.merge(avg_waktu, on="user_id", how="inner")
 
-        # Reindex agar urutan kolom sama dengan saat training
         df_siswa = df_siswa.reindex(columns=self._feat_names, fill_value=0)
 
         user_ids = df_siswa.index.tolist()
@@ -220,19 +179,7 @@ class PlacementModel:
 
         return X_scaled, user_ids, akurasi_raw
 
-    # ── Inference ─────────────────────────────────────────────────────────────
-
     def predict(self, records: list[dict]) -> list[dict]:
-        """
-        Jalankan inference dari raw records.
-
-        Args:
-            records: list of dict dengan key
-                     user_id, no_soal, materi, benar_salah, waktu_pengerjaan
-
-        Returns:
-            list of dict: [{"user_id": ..., "weak_topics": [...], "confidence": ...}]
-        """
         if not self.is_loaded:
             raise RuntimeError("Model belum dimuat. Panggil load() terlebih dahulu.")
 
@@ -242,7 +189,6 @@ class PlacementModel:
         threshold_weak  = cfg.get("threshold_weak", 0.6)
         max_weak_topics = cfg.get("max_weak_topics", 3)
 
-        # Prediksi probabilitas untuk semua siswa sekaligus (lebih efisien)
         proba_all = self._model.predict(X_scaled, verbose=0)
 
         results = []
@@ -251,7 +197,6 @@ class PlacementModel:
             level_idx   = int(np.argmax(proba))
             confidence  = float(proba[level_idx])
 
-            # Topik lemah: materi dengan akurasi < threshold
             if user_id in akurasi_raw.index:
                 akurasi_siswa = akurasi_raw.loc[user_id]
                 topik_lemah   = akurasi_siswa[akurasi_siswa < threshold_weak]
@@ -270,8 +215,5 @@ class PlacementModel:
 
         return results
 
-    # ── Info ──────────────────────────────────────────────────────────────────
-
     def get_info(self) -> dict:
-        """Kembalikan metadata model untuk endpoint /model/info."""
         return self._metadata

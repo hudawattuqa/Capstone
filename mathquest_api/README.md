@@ -1,7 +1,13 @@
-# MathQuest — Placement Model REST API
+---
+title: MathQuestAPI
+colorFrom: purple
+colorTo: red
+sdk: docker
+pinned: false
+license: mit
+---
 
-API mandiri berbasis **FastAPI** untuk memprediksi topik lemah siswa
-berdasarkan hasil pre-test.
+# MathQuest — Placement Model REST API
 
 ---
 
@@ -11,18 +17,18 @@ berdasarkan hasil pre-test.
 mathquest_api/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py        ← FastAPI app, endpoint, middleware
-│   ├── model.py       ← load model, preprocessing, inference
-│   ├── schemas.py     ← Pydantic request/response schemas
-│   └── config.py      ← konfigurasi via env / .env
-├── saved_model/       ← ⚠️ letakkan file model di sini
+│   ├── main.py        = FastAPI app, endpoint, middleware
+│   ├── model.py       = load model, preprocessing, inference
+│   ├── schemas.py     = Pydantic request/response schemas
+│   └── config.py      = konfigurasi via env / .env
+├── saved_model/
 │   ├── placement_model.keras
 │   ├── placement_scaler.pkl
 │   ├── feature_names.txt
 │   └── placement_model_metadata.json
 ├── .env.example
 ├── requirements.txt
-└── run.py             ← entry point
+└── run.py
 ```
 
 ---
@@ -44,10 +50,9 @@ feature_names.txt
 placement_model_metadata.json
 ```
 
-### 3. Konfigurasi (opsional)
+### 3. Konfigurasi
 ```bash
 cp .env.example .env
-# Edit .env sesuai kebutuhan
 ```
 
 ### 4. Jalankan server
@@ -119,7 +124,7 @@ Jalankan API ini sebagai service terpisah:
 - **Development**: `localhost:8000`
 - **Produksi**: container Docker / VM tersendiri, misalnya `http://ai-service:8000`
 
-> ⚠️ **TensorFlow tidak aman di-fork.** Gunakan `workers=1` di Uvicorn.
+> **TensorFlow tidak aman di-fork.** Gunakan `workers=1` di Uvicorn.
 > Untuk concurrency tinggi, gunakan async atau load model per-request dengan
 > caching (tidak disarankan — gunakan queue seperti Celery).
 
@@ -134,7 +139,7 @@ async function getPrediction(pretestRecords) {
     body: JSON.stringify({ records: pretestRecords }),
   });
   if (!response.ok) throw new Error(`AI service error: ${response.status}`);
-  return response.json(); // [{user_id, weak_topics, confidence}]
+  return response.json();
 }
 ```
 
@@ -174,11 +179,9 @@ Backend harus mengirim data dalam format ini:
 ### Tahap 4 — Proses Hasil di Backend
 
 ```javascript
-// Contoh: simpan hasil ke database dan kembalikan ke frontend
 app.post('/api/pretest/submit', async (req, res) => {
   const { userId, answers } = req.body;
 
-  // Format ulang ke struktur yang diharapkan AI
   const records = answers.map((a, idx) => ({
     user_id: userId,
     no_soal: idx + 1,
@@ -187,11 +190,9 @@ app.post('/api/pretest/submit', async (req, res) => {
     waktu_pengerjaan: a.timeSpent,
   }));
 
-  // Panggil AI service
   const predictions = await getPrediction(records);
-  const result = predictions[0]; // satu siswa
+  const result = predictions[0];
 
-  // Simpan ke DB
   await db.placement.upsert({
     where: { userId },
     update: { weakTopics: result.weak_topics, confidence: result.confidence },
@@ -218,7 +219,6 @@ async function callAIWithFallback(records) {
     return await getPrediction(records);
   } catch (err) {
     if (err.status === 503) {
-      // Model sedang tidak siap — log dan kembalikan fallback
       console.error('AI service unavailable');
       return records
         .map(r => r.user_id)
@@ -255,10 +255,3 @@ docker run -p 8000:8000 \
 ```
 
 ---
-
-## Catatan Penting
-
-- **workers=1** — TensorFlow tidak thread-safe untuk multi-process fork
-- **saved_model/** — pastikan path ini benar sebelum menjalankan server
-- **CORS** — ubah `ALLOWED_ORIGINS` di `.env` untuk membatasi akses di produksi
-- **Timeout** — set timeout HTTP client backend minimal 30 detik (inference bisa lambat)

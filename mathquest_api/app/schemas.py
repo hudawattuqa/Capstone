@@ -163,8 +163,6 @@ class ModelKonfigurasi(BaseModel):
 
 
 class ModelInfoResponse(BaseModel):
-    """Response untuk endpoint /model/info."""
-
     nama_model: str
     versi: str
     deskripsi: str

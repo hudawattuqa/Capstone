@@ -6,14 +6,14 @@ atau langsung dengan uvicorn:
 """
 
 import uvicorn
-from app.config import settings
+from MathQuestAPI.app.config import settings
 
 if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=False,          # Ganti True saat development
-        workers=1,             # TF model tidak aman di-fork, pakai 1 worker
+        reload=False, 
+        workers=1,      
         log_level="info",
     )
