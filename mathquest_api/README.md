@@ -124,10 +124,6 @@ Jalankan API ini sebagai service terpisah:
 - **Development**: `localhost:8000`
 - **Produksi**: container Docker / VM tersendiri, misalnya `http://ai-service:8000`
 
-> **TensorFlow tidak aman di-fork.** Gunakan `workers=1` di Uvicorn.
-> Untuk concurrency tinggi, gunakan async atau load model per-request dengan
-> caching (tidak disarankan — gunakan queue seperti Celery).
-
 ### Tahap 2 — Backend Memanggil API
 
 **Node.js / Express:**
